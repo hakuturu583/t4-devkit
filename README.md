@@ -87,7 +87,7 @@ More details, please refer to [`t4extract` CLI](./docs/cli/t4extract.md).
 | Camera  | MP4          |   ✅    |
 |         | Animated GIF |   ✅    |
 
-Note that encoding a MP4 file requires `ffmpeg`, which is bundled in the `video` extra:
+Note that encoding a MP4 file requires the `video` extra, which bundles FFmpeg libraries:
 
 ```shell
 # e.g) with pip

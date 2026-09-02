@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import os
 import os.path as osp
-import shutil
-import subprocess
 import warnings
 from enum import Enum, unique
-from tempfile import TemporaryFile
+from fractions import Fraction
 from typing import TYPE_CHECKING, Iterator, Sequence
 
 import numpy as np
@@ -21,6 +19,8 @@ from .query import resolve_channels, select_sample_data
 from .timespec import TimeSpec
 
 if TYPE_CHECKING:
+    from types import ModuleType
+
     from t4_devkit.schema import SampleData
     from t4_devkit.tier4 import T4Devkit
     from t4_devkit.typing import PathLike
@@ -32,11 +32,13 @@ __all__ = [
     "VideoExtractionResult",
     "extract_video",
     "estimate_fps",
-    "resolve_ffmpeg",
 ]
 
 # Frame rate used when it cannot be estimated from timestamps.
 _DEFAULT_FPS: float = 10.0
+
+# The largest denominator of a frame rate passed to the encoder as a rational number.
+_MAX_FPS_DENOMINATOR: int = 1000
 
 
 @unique
@@ -44,8 +46,8 @@ class VideoFormat(str, Enum):
     """An enum to represent supported video formats.
 
     Attributes:
-        MP4: MP4 container encoded by `ffmpeg`.
-        GIF: Animated GIF, which does not require `ffmpeg`.
+        MP4: MP4 container encoded by `libx264`, which requires the `video` extra.
+        GIF: Animated GIF, which requires no extra dependency.
     """
 
     MP4 = "mp4"
@@ -99,7 +101,6 @@ def extract_video(
     scale: float = 1.0,
     max_frames: int | None = None,
     crf: int = 23,
-    ffmpeg: PathLike | None = None,
     verbose: bool = False,
 ) -> list[VideoExtractionResult]:
     """Extract camera images within the specified time range as a video file.
@@ -125,13 +126,11 @@ def extract_video(
         max_frames (int | None, optional): Maximum number of frames to be encoded.
         crf (int, optional): Constant rate factor of `libx264`, which is only used for MP4.
             The smaller value results in the better quality.
-        ffmpeg (PathLike | None, optional): Path to the `ffmpeg` executable.
-            If None, it is searched automatically.
         verbose (bool, optional): Whether to display progress.
 
     Raises:
         ValueError: Expecting `scale` is positive and all cameras refer to an existing sensor.
-        FileNotFoundError: Expecting the `ffmpeg` executable is found, if MP4 is specified.
+        ImportError: Expecting `av` is installed, if MP4 is specified.
 
     Returns:
         List of the results for each camera channel.
@@ -144,10 +143,11 @@ def extract_video(
     channels = resolve_channels(t4, camera, modality=SensorModality.CAMERA)
 
     # NOTE: Resolve the user inputs before loading any frame so that a malformed expression
-    # or a missing ffmpeg is reported without doing useless work.
+    # or a missing dependency is reported without doing useless work.
     start = TimeSpec.parse(start) if start is not None else None
     end = TimeSpec.parse(end) if end is not None else None
-    executable = resolve_ffmpeg(ffmpeg) if is_mp4 else None
+    if is_mp4:
+        _import_av()
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -167,7 +167,7 @@ def extract_video(
 
         frames = _iter_frames(t4, records, size=size, channel=channel, verbose=verbose)
         if is_mp4:
-            _save_as_mp4(frames, filepath, fps=frame_fps, size=size, crf=crf, ffmpeg=executable)
+            _save_as_mp4(frames, filepath, fps=frame_fps, size=size, crf=crf)
         else:
             _save_as_gif(frames, filepath, fps=frame_fps)
 
@@ -205,43 +205,24 @@ def estimate_fps(timestamps: Sequence[int]) -> float:
     return round(1.0 / microseconds2seconds(float(np.median(deltas))), 3)
 
 
-def resolve_ffmpeg(executable: PathLike | None = None) -> str:
-    """Resolve the path to the `ffmpeg` executable.
-
-    If `executable` is not specified, the binary bundled in `imageio-ffmpeg` is preferred,
-    and then the one installed on the system is searched.
-
-    Args:
-        executable (PathLike | None, optional): Path to the `ffmpeg` executable.
+def _import_av() -> ModuleType:
+    """Import `av`, which is an optional dependency to encode a MP4 file.
 
     Raises:
-        FileNotFoundError: Expecting the `ffmpeg` executable is found.
+        ImportError: Expecting `av` is installed.
 
     Returns:
-        Path to the `ffmpeg` executable.
+        Imported `av` module.
     """
-    if executable is not None:
-        executable = str(executable)
-        found = shutil.which(executable) or (executable if osp.isfile(executable) else None)
-        if found is None:
-            raise FileNotFoundError(f"ffmpeg is not found: {executable}")
-        return found
-
     try:
-        import imageio_ffmpeg
+        import av
+    except ImportError:
+        raise ImportError(
+            "`av` is required to encode a MP4 file. Install it with "
+            "`pip install 't4-devkit[video]'`, or export an animated GIF instead."
+        ) from None
 
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except (ImportError, RuntimeError):
-        pass
-
-    found = shutil.which("ffmpeg")
-    if found is None:
-        raise FileNotFoundError(
-            "ffmpeg is not found. Install it with `pip install 't4-devkit[video]'`, "
-            "install ffmpeg on your system, or export a GIF instead of a MP4."
-        )
-
-    return found
+    return av
 
 
 def _resolve_size(
@@ -314,9 +295,8 @@ def _save_as_mp4(
     fps: float,
     size: tuple[int, int],
     crf: int,
-    ffmpeg: str,
 ) -> None:
-    """Encode frames into a MP4 file by piping them into `ffmpeg`.
+    """Encode frames into a MP4 file with `libx264`.
 
     Args:
         frames (Iterator[Image.Image]): Frames to be encoded.
@@ -324,57 +304,24 @@ def _save_as_mp4(
         fps (float): Frame rate in [Hz].
         size (tuple[int, int]): Frame width and height in [px].
         crf (int): Constant rate factor of `libx264`.
-        ffmpeg (str): Path to the `ffmpeg` executable.
-
-    Raises:
-        RuntimeError: Expecting `ffmpeg` exits successfully.
     """
-    command = [
-        ffmpeg,
-        "-hide_banner",
-        "-loglevel", "error",
-        "-y",
-        "-f", "rawvideo",
-        "-pix_fmt", "rgb24",
-        "-s", f"{size[0]}x{size[1]}",
-        "-r", str(fps),
-        "-i", "-",
-        "-an",
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", str(crf),
-        "-pix_fmt", "yuv420p",
-        filepath,
-    ]  # fmt: skip
+    av = _import_av()
 
-    # NOTE: Redirect stderr to a temporary file so that ffmpeg never blocks on a full pipe
-    # while frames are being written into its stdin.
-    with TemporaryFile() as stderr_file:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=stderr_file,
-        )
+    with av.open(filepath, mode="w") as container:
+        # NOTE: The frame rate must be given as a rational number.
+        rate = Fraction(fps).limit_denominator(_MAX_FPS_DENOMINATOR)
+        stream = container.add_stream("libx264", rate=rate)
+        stream.width, stream.height = size
+        stream.pix_fmt = "yuv420p"
+        stream.options = {"crf": str(crf), "preset": "medium"}
 
-        try:
-            for frame in frames:
-                process.stdin.write(frame.tobytes())
-        except BrokenPipeError:
-            # NOTE: ffmpeg has already exited, and the reason is reported by its stderr.
-            pass
-        finally:
-            if not process.stdin.closed:
-                process.stdin.close()
-            returncode = process.wait()
+        for frame in frames:
+            for packet in stream.encode(av.VideoFrame.from_image(frame)):
+                container.mux(packet)
 
-        stderr_file.seek(0)
-        stderr = stderr_file.read().decode("utf-8", errors="replace").strip()
-
-    if returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg failed to encode {filepath} with the exit code {returncode}: {stderr}"
-        )
+        # NOTE: Flush the frames which are still buffered in the encoder.
+        for packet in stream.encode():
+            container.mux(packet)
 
 
 def _save_as_gif(frames: Iterator[Image.Image], filepath: str, *, fps: float) -> None:

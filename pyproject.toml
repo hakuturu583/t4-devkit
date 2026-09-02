@@ -27,8 +27,8 @@ dependencies = [
 
 [project.optional-dependencies]
 video = [
-    # NOTE: Provides a bundled `ffmpeg` binary used to encode extracted images into a video.
-    "imageio-ffmpeg>=0.5.0",
+    # NOTE: Provides bundled FFmpeg libraries used to encode extracted images into a MP4 file.
+    "av>=13",
 ]
 
 [dependency-groups]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import shutil
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 
 from t4_devkit.extract import VideoFormat, extract_video
-from t4_devkit.extract.video import estimate_fps, resolve_ffmpeg
+from t4_devkit.extract.video import estimate_fps
 
 if TYPE_CHECKING:
     from t4_devkit import T4Devkit
@@ -17,10 +17,10 @@ FIRST = 1704067200000000
 LAST = 1704067202000000
 
 
-def _has_ffmpeg() -> bool:
+def _has_av() -> bool:
     try:
-        resolve_ffmpeg()
-    except FileNotFoundError:
+        import av  # noqa: F401
+    except ImportError:
         return False
     return True
 
@@ -119,7 +119,7 @@ class TestExtractVideo:
         with pytest.raises(ValueError):
             extract_video(t4, "LIDAR_TOP", output_dir=tmp_path, video_format="gif")
 
-    @pytest.mark.skipif(not _has_ffmpeg(), reason="ffmpeg is not installed.")
+    @pytest.mark.skipif(not _has_av(), reason="`av` is not installed.")
     def test_extract_as_mp4(self, t4: T4Devkit, tmp_path: Path) -> None:
         results = extract_video(t4, "CAM_FRONT", output_dir=tmp_path)
 
@@ -136,27 +136,20 @@ class TestExtractVideo:
 
         assert (results[0].width, results[0].height) == (799, 599)
 
-    @pytest.mark.skipif(not _has_ffmpeg(), reason="ffmpeg is not installed.")
+    @pytest.mark.skipif(not _has_av(), reason="`av` is not installed.")
     def test_extract_as_mp4_with_odd_size(self, t4: T4Devkit, tmp_path: Path) -> None:
         """Test that the frame size is rounded down to even numbers for `yuv420p`."""
         results = extract_video(t4, "CAM_FRONT", output_dir=tmp_path, scale=0.999)
 
         assert (results[0].width, results[0].height) == (798, 598)
 
-    @pytest.mark.skipif(not Path("/bin/false").is_file(), reason="`/bin/false` is not available.")
-    def test_extract_with_failing_ffmpeg(self, t4: T4Devkit, tmp_path: Path) -> None:
-        with pytest.raises(RuntimeError):
-            extract_video(t4, "CAM_FRONT", output_dir=tmp_path, ffmpeg="/bin/false")
+    def test_extract_as_mp4_without_av(
+        self, t4: T4Devkit, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that a missing `av` is reported before any frame is loaded."""
+        monkeypatch.setitem(sys.modules, "av", None)
 
+        with pytest.raises(ImportError):
+            extract_video(t4, "CAM_FRONT", output_dir=tmp_path)
 
-class TestResolveFfmpeg:
-    """Test cases for `resolve_ffmpeg`."""
-
-    def test_resolve_with_unknown_executable(self) -> None:
-        with pytest.raises(FileNotFoundError):
-            resolve_ffmpeg("t4-devkit-unknown-ffmpeg")
-
-    def test_resolve_with_existing_executable(self) -> None:
-        executable = shutil.which("python3")
-
-        assert resolve_ffmpeg(executable) == executable
+        assert not list(tmp_path.iterdir())

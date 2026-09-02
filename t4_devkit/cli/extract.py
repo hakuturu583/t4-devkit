@@ -102,14 +102,6 @@ def video(
         int | None,
         typer.Option(..., "--max-frames", help="Maximum number of frames to be extracted."),
     ] = None,
-    ffmpeg: Annotated[
-        str | None,
-        typer.Option(
-            ...,
-            "--ffmpeg",
-            help="Path to the `ffmpeg` executable. If not specified, it is searched automatically.",
-        ),
-    ] = None,
     revision: RevisionOption = None,
 ) -> None:
     t4 = T4Devkit(data_root, revision=revision, verbose=False)
@@ -126,7 +118,6 @@ def video(
         scale=scale,
         max_frames=max_frames,
         crf=crf,
-        ffmpeg=ffmpeg,
         verbose=True,
     )
 

@@ -20,7 +20,7 @@ pip install git+https://github.com/tier4/t4-devkit.git@main
 
 | Extra   | Description                                                                              |
 | :------ | :--------------------------------------------------------------------------------------- |
-| `video` | Bundles a `ffmpeg` binary, which is required by [`t4extract video`](./cli/t4extract.md). |
+| `video` | Bundles FFmpeg libraries, which are required by [`t4extract video`](./cli/t4extract.md). |
 
 ```shell
 # e.g) with pip

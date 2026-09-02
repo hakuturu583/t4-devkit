@@ -828,7 +828,6 @@ class T4Devkit:
         scale: float = 1.0,
         max_frames: int | None = None,
         crf: int = 23,
-        ffmpeg: PathLike | None = None,
         verbose: bool = False,
     ) -> list[VideoExtractionResult]:
         """Extract camera images within the specified time range as a video file.
@@ -853,8 +852,6 @@ class T4Devkit:
             max_frames (int | None, optional): Maximum number of frames to be encoded.
             crf (int, optional): Constant rate factor of `libx264`, which is only used for MP4.
                 The smaller value results in the better quality.
-            ffmpeg (PathLike | None, optional): Path to the `ffmpeg` executable.
-                If None, it is searched automatically.
             verbose (bool, optional): Whether to display progress.
 
         Returns:
@@ -877,7 +874,6 @@ class T4Devkit:
             scale=scale,
             max_frames=max_frames,
             crf=crf,
-            ffmpeg=ffmpeg,
             verbose=verbose,
         )
 

@@ -106,15 +106,15 @@ t4extract video <DATA_ROOT> -c CAM_FRONT -f 10.0 --scale 0.5 -o ./output
 
 <!-- prettier-ignore-start -->
 !!! NOTE
-    Encoding a MP4 file requires `ffmpeg`. It is bundled in the `video` extra:
+    Encoding a MP4 file requires the `video` extra, which bundles FFmpeg libraries:
 
     <!-- markdownlint-disable MD046 -->
     ```shell
     pip install "t4-devkit[video] @ git+https://github.com/tier4/t4-devkit.git"
     ```
 
-    Otherwise, install `ffmpeg` on your system, specify its path with `--ffmpeg` option,
-    or export an animated GIF with `--format gif`, which does not require `ffmpeg`:
+    Otherwise, export an animated GIF with `--format gif`,
+    which requires no extra dependency:
 
     <!-- markdownlint-disable MD046 -->
     ```shell
