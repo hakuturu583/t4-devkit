@@ -20,10 +20,12 @@ nav:
       - Home: cli/index.md
       - t4viz: cli/t4viz.md
       - t4sanity: cli/t4sanity.md
+      - t4extract: cli/t4extract.md
   - API References:
       - t4_devkit.tier4: apis/tier4.md
       - t4_devkit.helper: apis/helper.md
       - t4_devkit.sanity: apis/sanity.md
+      - t4_devkit.extract: apis/extract.md
       - t4_devkit.schema:
           - Home: apis/schema/index.md
           - Schema Names: apis/schema/name.md

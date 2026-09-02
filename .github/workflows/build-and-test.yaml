@@ -40,7 +40,7 @@ jobs:
 
       - name: Install the project
         if: ${{ steps.is-changed.outputs.changes == 'true'}}
-        run: uv sync
+        run: uv sync --all-extras
 
       - name: Run tests
         if: ${{ steps.is-changed.outputs.changes == 'true'}}
@@ -53,6 +53,8 @@ jobs:
           uv run t4viz instance ./tests/sample/t4dataset 90f0c98d1a040d5360847f576c5528f8 -o ./output
           uv run t4viz pointcloud ./tests/sample/t4dataset -o ./output
           uv run t4sanity ./tests/sample/t4dataset
+          uv run t4extract list ./tests/sample/t4dataset
+          uv run t4extract video ./tests/sample/t4dataset -c CAM_FRONT -o ./output
 
       - name: Get test coverage
         if: ${{ steps.is-changed.outputs.changes == 'true'}} && ${{ matrix.python-version == '3.10' }}

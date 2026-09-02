@@ -14,6 +14,19 @@ By specifying `@<TAG_OR_BRANCH>`, you can install the particular version of `t4-
 pip install git+https://github.com/tier4/t4-devkit.git@main
 ```
 
+### Extras
+
+`t4-devkit` provides the following optional dependencies:
+
+| Extra   | Description                                                                              |
+| :------ | :--------------------------------------------------------------------------------------- |
+| `video` | Bundles FFmpeg libraries, which are required by [`t4extract video`](./cli/t4extract.md). |
+
+```shell
+# e.g) with pip
+pip install "t4-devkit[video] @ git+https://github.com/tier4/t4-devkit.git"
+```
+
 ## [For Developers] Install from source
 
 You need to install `uv`. For details, please refer to [OFFICIAL DOCUMENT](https://docs.astral.sh/uv/).

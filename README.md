@@ -75,3 +75,21 @@ More details, please refer to [`t4viz` CLI](./docs/cli/t4viz.md) or [API usage](
 `t4-devkit` provides a set of sanity checks to ensure the correctness of the data.
 
 More details, please refer to [`t4sanity` CLI](./docs/cli/t4sanity.md) or [API usage](./docs/tutorials/sanity.md).
+
+### Data Extraction
+
+`t4-devkit` provides a set of tools to cut out raw sensor data in a particular time range.
+
+More details, please refer to [`t4extract` CLI](./docs/cli/t4extract.md).
+
+| Feature | Output       | Support |
+| :------ | :----------- | :-----: |
+| Camera  | MP4          |   ✅    |
+|         | Animated GIF |   ✅    |
+
+Note that encoding a MP4 file requires the `video` extra, which bundles FFmpeg libraries:
+
+```shell
+# e.g) with pip
+pip install "t4-devkit[video] @ git+https://github.com/tier4/t4-devkit.git"
+```
