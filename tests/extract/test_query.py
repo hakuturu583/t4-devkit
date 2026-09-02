@@ -60,42 +60,39 @@ class TestSelectSampleData:
     """Test cases for `select_sample_data`."""
 
     def test_select_all(self, t4: T4Devkit) -> None:
-        records, time_range = select_sample_data(t4, "CAM_FRONT")
+        records = select_sample_data(t4, "CAM_FRONT")
 
         assert [record.timestamp for record in records] == [FIRST, FIRST + 1000000, LAST]
-        assert (time_range.start, time_range.end) == (FIRST, LAST)
 
     def test_select_with_absolute_range(self, t4: T4Devkit) -> None:
-        records, _ = select_sample_data(t4, "CAM_FRONT", start=FIRST + 1000000, end=LAST)
+        records = select_sample_data(t4, "CAM_FRONT", start=FIRST + 1000000, end=LAST)
 
         assert [record.timestamp for record in records] == [FIRST + 1000000, LAST]
 
     def test_select_with_relative_range(self, t4: T4Devkit) -> None:
-        records, _ = select_sample_data(t4, "CAM_FRONT", start="+1.0", end="-0.5")
+        records = select_sample_data(t4, "CAM_FRONT", start="+1.0", end="-0.5")
 
         assert [record.timestamp for record in records] == [FIRST + 1000000]
 
     def test_select_with_duration(self, t4: T4Devkit) -> None:
-        records, _ = select_sample_data(t4, "CAM_FRONT", duration=1.0)
+        records = select_sample_data(t4, "CAM_FRONT", duration=1.0)
 
         assert [record.timestamp for record in records] == [FIRST, FIRST + 1000000]
 
     def test_select_with_max_frames(self, t4: T4Devkit) -> None:
-        records, _ = select_sample_data(t4, "CAM_FRONT", max_frames=2)
+        records = select_sample_data(t4, "CAM_FRONT", max_frames=2)
 
         assert [record.timestamp for record in records] == [FIRST, FIRST + 1000000]
 
     def test_select_out_of_range(self, t4: T4Devkit) -> None:
-        records, time_range = select_sample_data(t4, "CAM_FRONT", start=LAST + 1, end=LAST + 100)
+        records = select_sample_data(t4, "CAM_FRONT", start=LAST + 1, end=LAST + 100)
 
         assert records == []
-        assert time_range is not None
 
     def test_select_unknown_channel(self, t4: T4Devkit) -> None:
-        records, time_range = select_sample_data(t4, "CAM_UNKNOWN")
+        records = select_sample_data(t4, "CAM_UNKNOWN")
 
         assert records == []
-        assert time_range is None
 
 
 class TestSummarizeChannels:

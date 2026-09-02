@@ -76,9 +76,7 @@ def resolve_channels(
         List of the resolved channel names.
     """
     candidates: list[Sensor] = [
-        sensor
-        for sensor in t4.sensor
-        if modality is None or sensor.modality == SensorModality(modality)
+        sensor for sensor in t4.sensor if modality is None or sensor.modality == modality
     ]
 
     if not candidates:
@@ -87,13 +85,10 @@ def resolve_channels(
             f"registered in {t4.dataset_id}."
         )
 
-    if identifiers is None:
-        return [sensor.channel for sensor in candidates]
-
     if isinstance(identifiers, str):
         identifiers = [identifiers]
 
-    if len(identifiers) == 0:
+    if not identifiers:
         return [sensor.channel for sensor in candidates]
 
     channel_map = {sensor.channel.lower(): sensor.channel for sensor in candidates}
@@ -121,7 +116,7 @@ def select_sample_data(
     end: TimeSpecLike | None = None,
     duration: float | None = None,
     max_frames: int | None = None,
-) -> tuple[list[SampleData], TimeRange | None]:
+) -> list[SampleData]:
     """Select valid `sample_data` records of the specified channel within the specified time range.
 
     Args:
@@ -136,14 +131,13 @@ def select_sample_data(
         max_frames (int | None, optional): Maximum number of records to be selected.
 
     Returns:
-        Selected records ordered by timestamp, and the resolved time range.
-        The time range is None if the channel has no frame at all.
+        Selected records ordered by timestamp.
     """
     records = [record for record in t4.sample_data if record.channel == channel and record.is_valid]
     records.sort(key=lambda record: record.timestamp)
 
     if not records:
-        return [], None
+        return []
 
     time_range = TimeRange.resolve(
         start,
@@ -155,7 +149,7 @@ def select_sample_data(
 
     selected = [record for record in records if time_range.contains(record.timestamp)]
 
-    return (selected if max_frames is None else selected[:max_frames]), time_range
+    return selected if max_frames is None else selected[:max_frames]
 
 
 def summarize_channels(t4: T4Devkit) -> list[ChannelSummary]:
@@ -167,23 +161,29 @@ def summarize_channels(t4: T4Devkit) -> list[ChannelSummary]:
     Returns:
         List of summaries ordered by modality and channel name.
     """
-    timestamps: dict[str, list[int]] = {sensor.channel: [] for sensor in t4.sensor}
+    # NOTE: Only the number of frames and the both ends of the time range are of interest,
+    # hence the timestamps themselves are not accumulated.
+    counts: dict[str, int] = {sensor.channel: 0 for sensor in t4.sensor}
+    firsts: dict[str, int] = {}
+    lasts: dict[str, int] = {}
     for record in t4.sample_data:
-        if record.channel in timestamps and record.is_valid:
-            timestamps[record.channel].append(record.timestamp)
+        if record.channel not in counts or not record.is_valid:
+            continue
+        channel, timestamp = record.channel, record.timestamp
+        counts[channel] += 1
+        firsts[channel] = min(firsts.get(channel, timestamp), timestamp)
+        lasts[channel] = max(lasts.get(channel, timestamp), timestamp)
 
-    summaries: list[ChannelSummary] = []
-    for sensor in t4.sensor:
-        stamps = sorted(timestamps[sensor.channel])
-        summaries.append(
-            ChannelSummary(
-                channel=sensor.channel,
-                modality=sensor.modality,
-                sensor_token=sensor.token,
-                num_frames=len(stamps),
-                first_timestamp=stamps[0] if stamps else None,
-                last_timestamp=stamps[-1] if stamps else None,
-            )
+    summaries = [
+        ChannelSummary(
+            channel=sensor.channel,
+            modality=sensor.modality,
+            sensor_token=sensor.token,
+            num_frames=counts[sensor.channel],
+            first_timestamp=firsts.get(sensor.channel),
+            last_timestamp=lasts.get(sensor.channel),
         )
+        for sensor in t4.sensor
+    ]
 
     return sorted(summaries, key=lambda summary: (summary.modality.value, summary.channel))

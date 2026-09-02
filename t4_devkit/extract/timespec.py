@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum, unique
 from typing import TYPE_CHECKING, Union
 
-from attrs import define, field, validators
+from attrs import define, field
 
 from t4_devkit.common.timestamp import microseconds2seconds, seconds2microseconds
 
@@ -86,13 +86,11 @@ class TimeSpec:
             return cls(expression.value, expression.origin)
 
         if isinstance(expression, datetime):
-            return cls(_datetime2microseconds(expression), TimeOrigin.ABSOLUTE)
+            return cls(_datetime2microseconds(expression))
 
-        if isinstance(expression, bool):
-            raise ValueError(f"Unsupported timestamp expression: {expression}")
-
-        if isinstance(expression, (int, float)):
-            return cls(_number2microseconds(expression), TimeOrigin.ABSOLUTE)
+        # NOTE: `bool` is a subclass of `int`, but is not a valid timestamp.
+        if isinstance(expression, (int, float)) and not isinstance(expression, bool):
+            return cls(_number2microseconds(expression))
 
         if not isinstance(expression, str):
             raise ValueError(f"Unsupported timestamp expression: {expression}")
@@ -112,12 +110,12 @@ class TimeSpec:
             return cls(offset, origin)
 
         try:
-            return cls(_number2microseconds(float(stripped)), TimeOrigin.ABSOLUTE)
+            return cls(_number2microseconds(float(stripped)))
         except ValueError:
             pass
 
         try:
-            return cls(_datetime2microseconds(_parse_datetime(stripped)), TimeOrigin.ABSOLUTE)
+            return cls(_datetime2microseconds(_parse_datetime(stripped)))
         except ValueError:
             raise ValueError(
                 f"Unsupported timestamp expression: {expression}. "
@@ -154,8 +152,8 @@ class TimeRange:
         end (int): Inclusive end of the range in [us].
     """
 
-    start: int = field(converter=int, validator=validators.instance_of(int))
-    end: int = field(converter=int, validator=validators.instance_of(int))
+    start: int = field(converter=int)
+    end: int = field(converter=int)
 
     def __attrs_post_init__(self) -> None:
         if self.end < self.start:

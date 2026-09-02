@@ -18,6 +18,7 @@ from t4_devkit.common.timestamp import microseconds2seconds
 from t4_devkit.schema import SensorModality
 
 from .query import resolve_channels, select_sample_data
+from .timespec import TimeSpec
 
 if TYPE_CHECKING:
     from t4_devkit.schema import SampleData
@@ -139,17 +140,20 @@ def extract_video(
         raise ValueError(f"`scale` must be positive, but got: {scale}")
 
     video_format = VideoFormat(video_format)
+    is_mp4 = video_format == VideoFormat.MP4
     channels = resolve_channels(t4, camera, modality=SensorModality.CAMERA)
 
-    # NOTE: Resolve the executable before loading any frame so that a missing ffmpeg is
-    # reported without doing useless work.
-    executable = resolve_ffmpeg(ffmpeg) if video_format == VideoFormat.MP4 else None
+    # NOTE: Resolve the user inputs before loading any frame so that a malformed expression
+    # or a missing ffmpeg is reported without doing useless work.
+    start = TimeSpec.parse(start) if start is not None else None
+    end = TimeSpec.parse(end) if end is not None else None
+    executable = resolve_ffmpeg(ffmpeg) if is_mp4 else None
 
     os.makedirs(output_dir, exist_ok=True)
 
     results: list[VideoExtractionResult] = []
     for channel in channels:
-        records, _ = select_sample_data(
+        records = select_sample_data(
             t4, channel, start=start, end=end, duration=duration, max_frames=max_frames
         )
 
@@ -159,10 +163,10 @@ def extract_video(
 
         filepath = osp.join(str(output_dir), f"{channel}{video_format.as_ext()}")
         frame_fps = fps if fps is not None else estimate_fps([r.timestamp for r in records])
-        size = _resolve_size(t4, records[0], scale=scale, even=video_format == VideoFormat.MP4)
+        size = _resolve_size(t4, records[0], scale=scale, even=is_mp4)
 
         frames = _iter_frames(t4, records, size=size, channel=channel, verbose=verbose)
-        if video_format == VideoFormat.MP4:
+        if is_mp4:
             _save_as_mp4(frames, filepath, fps=frame_fps, size=size, crf=crf, ffmpeg=executable)
         else:
             _save_as_gif(frames, filepath, fps=frame_fps)
@@ -183,21 +187,20 @@ def extract_video(
     return results
 
 
-def estimate_fps(timestamps: Sequence[int], default: float = _DEFAULT_FPS) -> float:
+def estimate_fps(timestamps: Sequence[int]) -> float:
     """Estimate a frame rate from the timestamps of consecutive frames.
 
     Args:
         timestamps (Sequence[int]): Unix times of the frames in [us].
-        default (float, optional): Frame rate returned if it cannot be estimated.
 
     Returns:
-        Estimated frame rate in [Hz].
+        Estimated frame rate in [Hz], or 10.0 if it cannot be estimated.
     """
     deltas = np.diff(np.asarray(timestamps, dtype=np.float64))
     deltas = deltas[deltas > 0.0]
 
     if len(deltas) == 0:
-        return default
+        return _DEFAULT_FPS
 
     return round(1.0 / microseconds2seconds(float(np.median(deltas))), 3)
 
@@ -218,10 +221,11 @@ def resolve_ffmpeg(executable: PathLike | None = None) -> str:
         Path to the `ffmpeg` executable.
     """
     if executable is not None:
-        found = shutil.which(str(executable))
-        if found is None and not osp.isfile(str(executable)):
+        executable = str(executable)
+        found = shutil.which(executable) or (executable if osp.isfile(executable) else None)
+        if found is None:
             raise FileNotFoundError(f"ffmpeg is not found: {executable}")
-        return found if found is not None else str(executable)
+        return found
 
     try:
         import imageio_ffmpeg
@@ -262,7 +266,7 @@ def _resolve_size(
     width, height = record.width, record.height
     if width <= 0 or height <= 0:
         # NOTE: Some datasets do not fill the resolution of camera data.
-        with Image.open(osp.join(t4.data_root, record.filename)) as image:
+        with Image.open(t4.get_sample_data_path(record.token)) as image:
             width, height = image.size
 
     width, height = max(1, int(width * scale)), max(1, int(height * scale))
@@ -294,9 +298,13 @@ def _iter_frames(
         Loaded frames.
     """
     for record in tqdm(records, desc=f"Extracting {channel}", disable=not verbose):
-        with Image.open(osp.join(t4.data_root, record.filename)) as image:
-            frame = image.convert("RGB")
-            yield frame if frame.size == size else frame.resize(size, Image.BILINEAR)
+        with Image.open(t4.get_sample_data_path(record.token)) as image:
+            # NOTE: `draft` lets a JPEG source be decoded at a reduced scale directly, which is
+            # much faster than decoding it at the full resolution and downscaling afterwards.
+            image.draft("RGB", size)
+            frame = image if image.mode == "RGB" else image.convert("RGB")
+            # NOTE: `resize`/`copy` detach the frame from the file, which is closed on exit.
+            yield frame.resize(size, Image.BILINEAR) if frame.size != size else frame.copy()
 
 
 def _save_as_mp4(
@@ -380,15 +388,16 @@ def _save_as_gif(frames: Iterator[Image.Image], filepath: str, *, fps: float) ->
     Raises:
         ValueError: Expecting at least a single frame is given.
     """
-    images = [frame.copy() for frame in frames]
+    first = next(frames, None)
 
-    if not images:
+    if first is None:
         raise ValueError("No frame is given to be encoded.")
 
-    images[0].save(
+    # NOTE: Pillow consumes `append_images` lazily, hence the frames are not buffered.
+    first.save(
         filepath,
         save_all=True,
-        append_images=images[1:],
+        append_images=frames,
         duration=max(1, int(round(1000.0 / fps))),
         loop=0,
     )

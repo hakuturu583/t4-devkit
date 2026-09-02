@@ -14,13 +14,12 @@ from typing_extensions import deprecated
 
 from t4_devkit.common.geometry import is_box_in_image
 from t4_devkit.dataclass import Box2D, Box3D, SemanticLabel, Shape, ShapeType
-from t4_devkit.extract import VideoFormat, extract_video
 from t4_devkit.helper import RenderingHelper, TimeseriesHelper
 from t4_devkit.schema import SchemaName, SensorModality, VisibilityLevel, build_schema
 from t4_devkit.schema.compatibility import fix_category_table
 
 if TYPE_CHECKING:
-    from t4_devkit.extract import TimeSpecLike, VideoExtractionResult
+    from t4_devkit.extract import TimeSpecLike, VideoExtractionResult, VideoFormat
     from t4_devkit.typing import CameraIntrinsicLike, PathLike, Vector3
 
     from .dataclass import BoxLike
@@ -825,9 +824,11 @@ class T4Devkit:
         end: TimeSpecLike | None = None,
         duration: float | None = None,
         fps: float | None = None,
-        video_format: str | VideoFormat = VideoFormat.MP4,
+        video_format: str | VideoFormat = "mp4",
         scale: float = 1.0,
         max_frames: int | None = None,
+        crf: int = 23,
+        ffmpeg: PathLike | None = None,
         verbose: bool = False,
     ) -> list[VideoExtractionResult]:
         """Extract camera images within the specified time range as a video file.
@@ -850,6 +851,10 @@ class T4Devkit:
             video_format (str | VideoFormat, optional): Output video format.
             scale (float, optional): Scale factor to resize frames.
             max_frames (int | None, optional): Maximum number of frames to be encoded.
+            crf (int, optional): Constant rate factor of `libx264`, which is only used for MP4.
+                The smaller value results in the better quality.
+            ffmpeg (PathLike | None, optional): Path to the `ffmpeg` executable.
+                If None, it is searched automatically.
             verbose (bool, optional): Whether to display progress.
 
         Returns:
@@ -858,6 +863,8 @@ class T4Devkit:
         Examples:
             >>> t4.extract_video("CAM_FRONT", output_dir="./output", start="+1.0", duration=5.0)
         """
+        from t4_devkit.extract import extract_video
+
         return extract_video(
             self,
             camera,
@@ -869,6 +876,8 @@ class T4Devkit:
             video_format=video_format,
             scale=scale,
             max_frames=max_frames,
+            crf=crf,
+            ffmpeg=ffmpeg,
             verbose=verbose,
         )
 

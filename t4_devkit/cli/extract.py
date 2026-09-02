@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Callable
 
 import typer
 from tabulate import tabulate
@@ -35,31 +35,6 @@ RevisionOption = Annotated[
     ),
 ]
 
-StartOption = Annotated[
-    str | None,
-    typer.Option(..., "-s", "--start", help=f"Start of the time range. {_TIMESTAMP_HELP}"),
-]
-
-EndOption = Annotated[
-    str | None,
-    typer.Option(..., "-e", "--end", help=f"End of the time range. {_TIMESTAMP_HELP}"),
-]
-
-DurationOption = Annotated[
-    float | None,
-    typer.Option(
-        ...,
-        "-d",
-        "--duration",
-        help="Time length in seconds from the start. This is ignored if `--end` is specified.",
-    ),
-]
-
-MaxFramesOption = Annotated[
-    int | None,
-    typer.Option(..., "--max-frames", help="Maximum number of frames to be extracted."),
-]
-
 
 @cli.command("video", help="Extract camera images in the specified time range as a video.")
 def video(
@@ -79,9 +54,23 @@ def video(
         str,
         typer.Option(..., "-o", "--output", help="Directory path to save the extracted video(s)."),
     ] = "./output",
-    start: StartOption = None,
-    end: EndOption = None,
-    duration: DurationOption = None,
+    start: Annotated[
+        str | None,
+        typer.Option(..., "-s", "--start", help=f"Start of the time range. {_TIMESTAMP_HELP}"),
+    ] = None,
+    end: Annotated[
+        str | None,
+        typer.Option(..., "-e", "--end", help=f"End of the time range. {_TIMESTAMP_HELP}"),
+    ] = None,
+    duration: Annotated[
+        float | None,
+        typer.Option(
+            ...,
+            "-d",
+            "--duration",
+            help="Time length in seconds from the start. This is ignored if `--end` is specified.",
+        ),
+    ] = None,
     fps: Annotated[
         float | None,
         typer.Option(
@@ -109,7 +98,10 @@ def video(
             "The smaller value results in the better quality.",
         ),
     ] = 23,
-    max_frames: MaxFramesOption = None,
+    max_frames: Annotated[
+        int | None,
+        typer.Option(..., "--max-frames", help="Maximum number of frames to be extracted."),
+    ] = None,
     ffmpeg: Annotated[
         str | None,
         typer.Option(
@@ -174,9 +166,9 @@ def list_channels(data_root: DataRootArgument, revision: RevisionOption = None) 
                     summary.modality.value,
                     summary.sensor_token,
                     summary.num_frames,
-                    summary.first_timestamp if summary.first_timestamp is not None else "-",
-                    summary.last_timestamp if summary.last_timestamp is not None else "-",
-                    _format_datetime(summary.first_timestamp),
+                    _or_dash(summary.first_timestamp),
+                    _or_dash(summary.last_timestamp),
+                    _or_dash(summary.first_timestamp, _format_datetime),
                     f"{summary.duration:.3f}",
                     f"{summary.fps:.3f}",
                 ]
@@ -198,17 +190,28 @@ def list_channels(data_root: DataRootArgument, revision: RevisionOption = None) 
     )
 
 
-def _format_datetime(timestamp: int | None) -> str:
-    """Format a unix time in [us] as an ISO 8601 datetime in UTC.
+def _or_dash(timestamp: int | None, formatter: Callable[[int], str] = str) -> str:
+    """Format a timestamp, or `-` if it is not recorded.
 
     Args:
         timestamp (int | None): Unix time in [us].
+        formatter (Callable[[int], str], optional): Formatter of a recorded timestamp.
 
     Returns:
-        Formatted datetime, or `-` if the input is None.
+        Formatted timestamp, or `-` if the input is None.
     """
-    if timestamp is None:
-        return "-"
+    return "-" if timestamp is None else formatter(timestamp)
+
+
+def _format_datetime(timestamp: int) -> str:
+    """Format a unix time in [us] as an ISO 8601 datetime in UTC.
+
+    Args:
+        timestamp (int): Unix time in [us].
+
+    Returns:
+        Formatted datetime.
+    """
     return datetime.fromtimestamp(microseconds2seconds(timestamp), tz=timezone.utc).isoformat()
 
 
