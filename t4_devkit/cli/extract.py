@@ -1,0 +1,226 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Annotated
+
+import typer
+from tabulate import tabulate
+
+from t4_devkit import T4Devkit
+from t4_devkit.common.timestamp import microseconds2seconds
+from t4_devkit.extract import VideoFormat, extract_video, summarize_channels
+
+from .version import version_callback
+
+cli = typer.Typer(
+    name="t4extract",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+    pretty_exceptions_enable=False,
+)
+
+# NOTE: Avoid square brackets in help messages, because `rich` interprets them as markup.
+_TIMESTAMP_HELP = (
+    "Unix time in seconds or microseconds, an ISO 8601 datetime such as "
+    "`2024-01-01T00:00:00`, or an offset in seconds from the first/last frame "
+    "such as `+1.5`/`-1.5`."
+)
+
+DataRootArgument = Annotated[str, typer.Argument(help="Root directory path to the dataset.")]
+
+RevisionOption = Annotated[
+    str | None,
+    typer.Option(
+        ..., "-rv", "--revision", help="Specify if you want to load the specific version."
+    ),
+]
+
+StartOption = Annotated[
+    str | None,
+    typer.Option(..., "-s", "--start", help=f"Start of the time range. {_TIMESTAMP_HELP}"),
+]
+
+EndOption = Annotated[
+    str | None,
+    typer.Option(..., "-e", "--end", help=f"End of the time range. {_TIMESTAMP_HELP}"),
+]
+
+DurationOption = Annotated[
+    float | None,
+    typer.Option(
+        ...,
+        "-d",
+        "--duration",
+        help="Time length in seconds from the start. This is ignored if `--end` is specified.",
+    ),
+]
+
+MaxFramesOption = Annotated[
+    int | None,
+    typer.Option(..., "--max-frames", help="Maximum number of frames to be extracted."),
+]
+
+
+@cli.command("video", help="Extract camera images in the specified time range as a video.")
+def video(
+    data_root: DataRootArgument,
+    camera: Annotated[
+        list[str] | None,
+        typer.Option(
+            ...,
+            "-c",
+            "--camera",
+            help="Camera channel name or `sensor` token. "
+            "This option can be specified multiple times. "
+            "If not specified, every camera channel is extracted.",
+        ),
+    ] = None,
+    output: Annotated[
+        str,
+        typer.Option(..., "-o", "--output", help="Directory path to save the extracted video(s)."),
+    ] = "./output",
+    start: StartOption = None,
+    end: EndOption = None,
+    duration: DurationOption = None,
+    fps: Annotated[
+        float | None,
+        typer.Option(
+            ...,
+            "-f",
+            "--fps",
+            help="Frame rate of the output video in Hz. "
+            "If not specified, it is estimated from the timestamps of the source frames.",
+        ),
+    ] = None,
+    video_format: Annotated[
+        VideoFormat,
+        typer.Option(..., "--format", help="Output video format."),
+    ] = VideoFormat.MP4,
+    scale: Annotated[
+        float,
+        typer.Option(..., "--scale", help="Scale factor to resize frames."),
+    ] = 1.0,
+    crf: Annotated[
+        int,
+        typer.Option(
+            ...,
+            "--crf",
+            help="Constant rate factor of `libx264`, which is only used for MP4. "
+            "The smaller value results in the better quality.",
+        ),
+    ] = 23,
+    max_frames: MaxFramesOption = None,
+    ffmpeg: Annotated[
+        str | None,
+        typer.Option(
+            ...,
+            "--ffmpeg",
+            help="Path to the `ffmpeg` executable. If not specified, it is searched automatically.",
+        ),
+    ] = None,
+    revision: RevisionOption = None,
+) -> None:
+    t4 = T4Devkit(data_root, revision=revision, verbose=False)
+
+    results = extract_video(
+        t4,
+        camera,
+        output_dir=output,
+        start=start,
+        end=end,
+        duration=duration,
+        fps=fps,
+        video_format=video_format,
+        scale=scale,
+        max_frames=max_frames,
+        crf=crf,
+        ffmpeg=ffmpeg,
+        verbose=True,
+    )
+
+    if not results:
+        raise typer.Exit(code=1)
+
+    print(
+        tabulate(
+            [
+                [
+                    result.channel,
+                    result.num_frames,
+                    f"{result.fps:.3f}",
+                    f"{result.width}x{result.height}",
+                    f"{result.duration:.3f}",
+                    result.filepath,
+                ]
+                for result in results
+            ],
+            headers=["Channel", "Frames", "FPS", "Resolution", "Duration[s]", "Output"],
+            tablefmt="pretty",
+        )
+    )
+
+
+@cli.command("list", help="List sensor channels and their time ranges.")
+def list_channels(data_root: DataRootArgument, revision: RevisionOption = None) -> None:
+    t4 = T4Devkit(data_root, revision=revision, verbose=False)
+
+    summaries = summarize_channels(t4)
+
+    print(
+        tabulate(
+            [
+                [
+                    summary.channel,
+                    summary.modality.value,
+                    summary.sensor_token,
+                    summary.num_frames,
+                    summary.first_timestamp if summary.first_timestamp is not None else "-",
+                    summary.last_timestamp if summary.last_timestamp is not None else "-",
+                    _format_datetime(summary.first_timestamp),
+                    f"{summary.duration:.3f}",
+                    f"{summary.fps:.3f}",
+                ]
+                for summary in summaries
+            ],
+            headers=[
+                "Channel",
+                "Modality",
+                "SensorToken",
+                "Frames",
+                "First[us]",
+                "Last[us]",
+                "First(UTC)",
+                "Duration[s]",
+                "FPS",
+            ],
+            tablefmt="pretty",
+        )
+    )
+
+
+def _format_datetime(timestamp: int | None) -> str:
+    """Format a unix time in [us] as an ISO 8601 datetime in UTC.
+
+    Args:
+        timestamp (int | None): Unix time in [us].
+
+    Returns:
+        Formatted datetime, or `-` if the input is None.
+    """
+    if timestamp is None:
+        return "-"
+    return datetime.fromtimestamp(microseconds2seconds(timestamp), tz=timezone.utc).isoformat()
+
+
+@cli.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-v",
+        help="Show the application version and exit.",
+        callback=version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    pass

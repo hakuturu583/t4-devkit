@@ -14,11 +14,13 @@ from typing_extensions import deprecated
 
 from t4_devkit.common.geometry import is_box_in_image
 from t4_devkit.dataclass import Box2D, Box3D, SemanticLabel, Shape, ShapeType
+from t4_devkit.extract import VideoFormat, extract_video
 from t4_devkit.helper import RenderingHelper, TimeseriesHelper
 from t4_devkit.schema import SchemaName, SensorModality, VisibilityLevel, build_schema
 from t4_devkit.schema.compatibility import fix_category_table
 
 if TYPE_CHECKING:
+    from t4_devkit.extract import TimeSpecLike, VideoExtractionResult
     from t4_devkit.typing import CameraIntrinsicLike, PathLike, Vector3
 
     from .dataclass import BoxLike
@@ -812,6 +814,62 @@ class T4Devkit:
             max_time_seconds=max_time_seconds,
             save_dir=save_dir,
             show_map=show_map,
+        )
+
+    def extract_video(
+        self,
+        camera: str | Sequence[str] | None = None,
+        *,
+        output_dir: PathLike,
+        start: TimeSpecLike | None = None,
+        end: TimeSpecLike | None = None,
+        duration: float | None = None,
+        fps: float | None = None,
+        video_format: str | VideoFormat = VideoFormat.MP4,
+        scale: float = 1.0,
+        max_frames: int | None = None,
+        verbose: bool = False,
+    ) -> list[VideoExtractionResult]:
+        """Extract camera images within the specified time range as a video file.
+
+        A video file is generated for each camera channel, and saved as
+        `<output_dir>/<CHANNEL>.<EXT>`.
+
+        Args:
+            camera (str | Sequence[str] | None, optional): Camera channel name(s) or
+                `sensor` token(s). If None, every camera channel is extracted.
+            output_dir (PathLike): Directory path to save the extracted video(s).
+            start (TimeSpecLike | None, optional): Start of the time range.
+                If None, the first frame of the channel is used.
+            end (TimeSpecLike | None, optional): End of the time range.
+                If None, `duration` or the last frame of the channel is used.
+            duration (float | None, optional): Time length in [s] from `start`.
+                This is ignored if `end` is specified.
+            fps (float | None, optional): Frame rate of the output video in [Hz].
+                If None, it is estimated from the timestamps of the source frames.
+            video_format (str | VideoFormat, optional): Output video format.
+            scale (float, optional): Scale factor to resize frames.
+            max_frames (int | None, optional): Maximum number of frames to be encoded.
+            verbose (bool, optional): Whether to display progress.
+
+        Returns:
+            List of the results for each camera channel.
+
+        Examples:
+            >>> t4.extract_video("CAM_FRONT", output_dir="./output", start="+1.0", duration=5.0)
+        """
+        return extract_video(
+            self,
+            camera,
+            output_dir=output_dir,
+            start=start,
+            end=end,
+            duration=duration,
+            fps=fps,
+            video_format=video_format,
+            scale=scale,
+            max_frames=max_frames,
+            verbose=verbose,
         )
 
 
